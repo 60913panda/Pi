@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>無限圓周率背誦網頁 (自動儲存)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            overflow: hidden; /* 防止滾動條出現 */
+        }
+        /* 自訂義滾動條樣式 */
+        #pi-display::-webkit-scrollbar {
+            width: 8px;
+        }
+        #pi-display::-webkit-scrollbar-track {
+            background: #1a202c; /* dark:gray-800 */
+        }
+        #pi-display::-webkit-scrollbar-thumb {
+            background-color: #4a5568; /* dark:gray-600 */
+            border-radius: 10px;
+            border: 2px solid #1a202c;
+        }
+        #pi-digits span {
+            display: inline; /* 移除 inline-block 以避免間距 */
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-4xl text-center">
+        <h1 class="text-4xl md:text-5xl font-bold text-cyan-400 mb-2">無限圓周率 (π) 背誦</h1>
+        <p class="text-lg text-gray-400 mb-6">採用 Spigot 演算法即時計算，進度與速度會自動儲存</p>
+
+        <div class="bg-gray-800 p-6 rounded-2xl shadow-2xl border border-gray-700">
+            <!-- 顯示區域 -->
+            <div id="pi-display" class="w-full h-64 md:h-80 text-left text-2xl md:text-3xl font-mono p-4 bg-gray-900 rounded-lg overflow-y-auto mb-4 border border-gray-600 leading-relaxed break-all">
+                <span id="pi-digits">3.</span>
+            </div>
+
+            <!-- 狀態提示文字 -->
+            <p id="status-text" class="text-sm text-gray-500 mb-4 h-5 transition-opacity duration-300"></p>
+
+            <!-- 統計數據 -->
+            <div class="flex justify-center items-center mb-6">
+                <div class="bg-cyan-500 bg-opacity-10 border border-cyan-500 text-cyan-400 p-4 rounded-lg shadow-lg">
+                    <span class="text-xl">目前小數位數：</span>
+                    <span id="digit-count" class="text-3xl font-bold">0</span>
+                </div>
+            </div>
+
+            <!-- 控制按鈕 -->
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+                <button id="start-btn" class="px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg shadow-md transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50">開始</button>
+                <button id="stop-btn" class="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow-md transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50" disabled>暫停</button>
+                <button id="reset-btn" class="px-6 py-3 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-lg shadow-md transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50">重設並清除</button>
+                <button id="download-btn" class="col-span-2 md:col-span-3 px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg shadow-md transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50">下載 .txt</button>
+            </div>
+
+             <!-- 手動輸入跳轉 -->
+            <div class="flex justify-center gap-2">
+                <input type="text" id="jump-input" placeholder="貼上已知圓周率數字直接跳轉" class="w-full bg-gray-700 text-white border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button id="jump-btn" class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 whitespace-nowrap">跳轉進度</button>
+            </div>
+
+             <div class="mt-6">
+                <label for="speed-slider" class="text-gray-400">速度 (毫秒/位數): <span id="speed-value">100</span>ms</label>
+                <input type="range" id="speed-slider" min="1" max="500" value="100" class="w-full mt-2 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const piContainer = document.getElementById('pi-digits');
+            const digitCount = document.getElementById('digit-count');
+            const displayBox = document.getElementById('pi-display');
+            const startBtn = document.getElementById('start-btn');
+            const stopBtn = document.getElementById('stop-btn');
+            const resetBtn = document.getElementById('reset-btn');
+            const jumpInput = document.getElementById('jump-input');
+            const jumpBtn = document.getElementById('jump-btn');
+            const downloadBtn = document.getElementById('download-btn');
+            const speedSlider = document.getElementById('speed-slider');
+            const speedValue = document.getElementById('speed-value');
+            const statusText = document.getElementById('status-text');
+
+            let currentIndex = 0;
+            let intervalId = null;
+            let currentSpeed = 100;
+            let piIterator;
+
+            function* piDigitGenerator() {
+                let q = 1n, r = 180n, t = 60n, i = 2n;
+                while (true) {
+                    let digit = (q * (27n * i - 12n) + 5n * r) / (5n * t);
+                    let u = 3n * (3n * i + 1n) * (3n * i + 2n);
+                    r = 10n * u * (q * (5n * i - 2n) + r - digit * t);
+                    q = 10n * q * i * (2n * i - 1n);
+                    t = t * u;
+                    i = i + 1n;
+                    yield Number(digit);
+                }
+            }
+            
+            function showStatus(message, duration = 3000) {
+                statusText.textContent = message;
+                statusText.style.opacity = 1;
+                if (duration !== Infinity) {
+                    setTimeout(() => { statusText.style.opacity = 0; }, duration - 500);
+                }
+            }
+
+            function saveState() {
+                try {
+                    const state = { count: currentIndex, speed: currentSpeed };
+                    localStorage.setItem('piReciterState', JSON.stringify(state));
+                    showStatus(`進度已於 ${new Date().toLocaleTimeString()} 儲存`);
+                } catch (e) {
+                    console.error("無法儲存進度:", e);
+                }
+            }
+
+            function addDigit() {
+                const nextDigit = piIterator.next().value;
+                piContainer.insertAdjacentText('beforeend', nextDigit.toString());
+                currentIndex++;
+                digitCount.textContent = currentIndex;
+                displayBox.scrollTop = displayBox.scrollHeight;
+                if (currentIndex > 0 && currentIndex % 100 === 0) {
+                    saveState();
+                }
+            }
+
+            function startReciting() {
+                if (intervalId) return;
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                speedSlider.disabled = true;
+                jumpBtn.disabled = true;
+                jumpInput.disabled = true;
+                intervalId = setInterval(addDigit, currentSpeed);
+            }
+
+            function stopReciting() {
+                clearInterval(intervalId);
+                intervalId = null;
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                speedSlider.disabled = false;
+                jumpBtn.disabled = false;
+                jumpInput.disabled = false;
+                if (currentIndex > 0) {
+                    saveState();
+                }
+            }
+
+            function resetReciting() {
+                stopReciting();
+                currentIndex = 0;
+                piContainer.innerHTML = "3.";
+                digitCount.textContent = "0";
+                displayBox.scrollTop = 0;
+                piIterator = piDigitGenerator();
+                piIterator.next();
+                try {
+                    localStorage.removeItem('piReciterState');
+                    showStatus('已清除本機儲存的進度。');
+                } catch (e) {
+                    console.error("無法清除儲存的進度:", e);
+                }
+            }
+
+            function updateSpeedLabel(e) {
+                currentSpeed = parseInt(e.target.value, 10);
+                speedValue.textContent = currentSpeed;
+            }
+
+            function downloadPi() {
+                if (currentIndex === 0) {
+                    showStatus('沒有可下載的數字。');
+                    return;
+                }
+                const piText = piContainer.innerText;
+                const blob = new Blob([piText], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `pi_digits_${currentIndex}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showStatus(`已開始下載 ${currentIndex} 位圓周率數字。`);
+            }
+            
+            async function processJumpAsync(targetCount, digitsToRender) {
+                startBtn.disabled = true;
+                jumpBtn.disabled = true;
+                jumpInput.disabled = true;
+
+                resetReciting();
+                stopReciting();
+
+                // 階段一: 非同步計算
+                showStatus(`正在計算跳轉位置... (0%)`, Infinity);
+                const calculationChunkSize = 25000; // 減小區塊以保持響應
+                let processedCount = 0;
+                while (processedCount < targetCount) {
+                    const currentChunkEnd = Math.min(processedCount + calculationChunkSize, targetCount);
+                    for (let i = processedCount; i < currentChunkEnd; i++) {
+                        piIterator.next();
+                    }
+                    processedCount = currentChunkEnd;
+                    const progress = Math.round((processedCount / targetCount) * 100);
+                    showStatus(`正在計算跳轉位置... (${progress}%)`, Infinity);
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+
+                // 階段二: 非同步渲染
+                showStatus('計算完成，正在渲染數字... (0%)', Infinity);
+                const renderChunkSize = 50000; // 減小區塊以保持響應
+                let renderedCount = 0;
+                while(renderedCount < targetCount) {
+                    const chunk = digitsToRender.substring(renderedCount, renderedCount + renderChunkSize);
+                    piContainer.insertAdjacentText('beforeend', chunk);
+                    renderedCount += chunk.length;
+                    const progress = Math.round((renderedCount / targetCount) * 100);
+                    showStatus(`正在渲染數字... (${progress}%)`, Infinity);
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+
+                currentIndex = targetCount;
+                digitCount.textContent = targetCount;
+                displayBox.scrollTop = displayBox.scrollHeight;
+                showStatus(`已成功跳轉至 ${targetCount} 位。`);
+                saveState();
+                
+                startBtn.disabled = false;
+                jumpBtn.disabled = false;
+                jumpInput.disabled = false;
+            }
+
+            function jumpToProgress() {
+                if (intervalId) {
+                    showStatus('請先暫停才能進行跳轉。');
+                    return;
+                }
+                let rawValue = jumpInput.value.trim();
+                if (rawValue.startsWith('3.')) {
+                    rawValue = rawValue.substring(2);
+                } else if (rawValue.startsWith('3')) {
+                    rawValue = rawValue.substring(1);
+                }
+                const userInputDigits = rawValue.replace(/[^0-9]/g, '');
+                if (userInputDigits.length === 0) {
+                    showStatus('請輸入有效的圓周率數字。');
+                    return;
+                }
+                const targetCount = userInputDigits.length;
+                processJumpAsync(targetCount, userInputDigits);
+            }
+
+            async function processLoadAsync(savedCount) {
+                showStatus(`正在自動載入 ${savedCount} 位數字... (0%)`, Infinity);
+                startBtn.disabled = true;
+                jumpBtn.disabled = true;
+                jumpInput.disabled = true;
+
+                const chunkSize = 10000; // 大幅減小區塊大小以防止當機
+                let loadedCount = 0;
+                while (loadedCount < savedCount) {
+                    const currentChunkEnd = Math.min(loadedCount + chunkSize, savedCount);
+                    let digitsChunk = [];
+                    for (let i = loadedCount; i < currentChunkEnd; i++) {
+                        digitsChunk.push(piIterator.next().value);
+                    }
+                    piContainer.insertAdjacentText('beforeend', digitsChunk.join(''));
+                    loadedCount = currentChunkEnd;
+                    const progress = Math.round((loadedCount / savedCount) * 100);
+                    showStatus(`正在自動載入 ${savedCount} 位數字... (${progress}%)`, Infinity);
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+
+                currentIndex = savedCount;
+                digitCount.textContent = savedCount;
+                displayBox.scrollTop = displayBox.scrollHeight;
+                showStatus(`已載入 ${savedCount} 位數字及速度設定。`);
+                
+                startBtn.disabled = false;
+                jumpBtn.disabled = false;
+                jumpInput.disabled = false;
+            }
+
+            function loadState() {
+                try {
+                    const savedStateJSON = localStorage.getItem('piReciterState');
+                    if (!savedStateJSON) return;
+                    const savedState = JSON.parse(savedStateJSON);
+                    const savedCount = savedState.count || 0;
+                    const savedSpeed = savedState.speed || 100;
+
+                    currentSpeed = savedSpeed;
+                    speedSlider.value = savedSpeed;
+                    speedValue.textContent = savedSpeed;
+
+                    if (savedCount > 0) {
+                        processLoadAsync(savedCount);
+                    } else if (savedState.speed) {
+                         showStatus('已載入上次的速度設定。');
+                    }
+                } catch (e) {
+                    console.error("無法載入進度:", e);
+                    showStatus('載入進度時發生錯誤。');
+                }
+            }
+            
+            function init() {
+                piIterator = piDigitGenerator();
+                piIterator.next();
+                loadState();
+                startBtn.addEventListener('click', startReciting);
+                stopBtn.addEventListener('click', stopReciting);
+                resetBtn.addEventListener('click', resetReciting);
+                jumpBtn.addEventListener('click', jumpToProgress);
+                downloadBtn.addEventListener('click', downloadPi);
+                speedSlider.addEventListener('input', updateSpeedLabel);
+                speedSlider.addEventListener('change', saveState);
+            }
+
+            init();
+        });
+    </script>
+</body>
+</html>
+
