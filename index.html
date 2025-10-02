@@ -39,6 +39,19 @@
                 <button id="manage-saves-btn" class="px-4 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed">管理存檔</button>
                 <button id="settings-btn" class="px-4 py-3 bg-teal-600 hover:bg-teal-700 rounded-lg shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed">設定</button>
             </div>
+
+            <!-- Manual Jump Section -->
+            <div class="mt-4 pt-4 border-t border-gray-600">
+                <div class="flex justify-center gap-2">
+                    <input type="text" id="jump-input" placeholder="貼上已知圓周率數字直接跳轉" class="w-full bg-gray-700 text-white border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <button id="jump-btn" class="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">跳轉進度</button>
+                </div>
+                <div class="flex items-center justify-center mt-3">
+                    <input id="jump-auto-start-checkbox" type="checkbox" class="h-4 w-4 bg-gray-700 border-gray-600 text-cyan-500 focus:ring-cyan-600 rounded disabled:opacity-50">
+                    <label for="jump-auto-start-checkbox" class="ml-2 text-gray-300 text-sm">跳轉後自動開始</label>
+                </div>
+            </div>
+
              <div class="mt-6">
                 <label for="speed-slider" class="text-gray-400">速度 (毫秒/位數): <span id="speed-value">100</span>ms</label>
                 <input type="range" id="speed-slider" min="1" max="500" value="100" class="w-full mt-2 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
@@ -71,6 +84,9 @@
             const manualSaveBtn = document.getElementById('manual-save-btn');
             const manageSavesBtn = document.getElementById('manage-saves-btn');
             const settingsBtn = document.getElementById('settings-btn');
+            const jumpInput = document.getElementById('jump-input');
+            const jumpBtn = document.getElementById('jump-btn');
+            const jumpAutoStartCheckbox = document.getElementById('jump-auto-start-checkbox');
             const speedSlider = document.getElementById('speed-slider');
             const speedValue = document.getElementById('speed-value');
             const statusText = document.getElementById('status-text');
@@ -85,7 +101,7 @@
 
             function* piDigitGenerator() { let q=1n,r=180n,t=60n,i=2n;while(true){let d=(q*(27n*i-12n)+5n*r)/(5n*t);let u=3n*(3n*i+1n)*(3n*i+2n);r=10n*u*(q*(5n*i-2n)+r-d*t);q=10n*q*i*(2n*i-1n);t=t*u;i=i+1n;yield Number(d);}}
             function showStatus(message, duration = 3000) { statusText.textContent=message;statusText.style.opacity=1;if(duration!==Infinity)setTimeout(()=>{statusText.style.opacity=0},duration-500);}
-            function setControlsState(state) { const a=state==='idle',b=state==='running',c=state==='busy';startBtn.disabled=b||c;stopBtn.disabled=a||c;resetBtn.disabled=b||c;manualSaveBtn.disabled=b||c;manageSavesBtn.disabled=b||c;settingsBtn.disabled=b||c;speedSlider.disabled=b||c;}
+            function setControlsState(state) { const a=state==='idle',b=state==='running',c=state==='busy';startBtn.disabled=b||c;stopBtn.disabled=a||c;resetBtn.disabled=b||c;manualSaveBtn.disabled=b||c;manageSavesBtn.disabled=b||c;settingsBtn.disabled=b||c;speedSlider.disabled=b||c;jumpBtn.disabled=b||c;jumpInput.disabled=b||c;jumpAutoStartCheckbox.disabled=b||c;}
             function addDigit() {piContainer.insertAdjacentText('beforeend',piIterator.next().value.toString());currentIndex++;digitCount.textContent=currentIndex;if(currentIndex>0&&currentIndex%100===0)autoSaveState();}
             function startReciting() {if(intervalId)return;setControlsState('running');intervalId=setInterval(addDigit,currentSpeed);}
             function stopReciting() {clearInterval(intervalId);intervalId=null;setControlsState('idle');if(currentIndex>=0)autoSaveState();}
@@ -102,7 +118,7 @@
                 const newSaveData = { count: currentIndex, speed: currentSpeed, timestamp: new Date().toISOString() };
                 if (autoSaveSlot) {
                     Object.assign(autoSaveSlot, newSaveData);
-                } else { // This case handles if the target was deleted
+                } else {
                     const newId = Date.now();
                     saves.unshift({ id: newId, name: '自動儲存', ...newSaveData });
                     settings.autoSaveTargetId = newId;
@@ -125,7 +141,7 @@
                  currentIndex = 0;
                  piContainer.innerHTML = "3.";
                  digitCount.textContent = "0";
-                 piIterator = piDigitGenerator();
+                 piIterator = piGenerator();
                  piIterator.next();
                  autoSaveState();
             }
@@ -156,12 +172,47 @@
                 if (autoStart) startReciting();
                 else setControlsState('idle');
             }
+             
+            async function processJumpAsync(targetCount, digitsToRender, autoStart = false) {
+                setControlsState('busy');
+                showStatus(`正在計算跳轉位置... (0%)`, Infinity);
+                resetApplication(false);
+                
+                const calculationChunkSize = 25000;
+                let processedCount = 0;
+                while (processedCount < targetCount) {
+                    const currentChunkEnd = Math.min(processedCount + calculationChunkSize, targetCount);
+                    for (let i = processedCount; i < currentChunkEnd; i++) {
+                        piIterator.next();
+                    }
+                    processedCount = currentChunkEnd;
+                    const progress = Math.round((processedCount / targetCount) * 100);
+                    showStatus(`正在計算跳轉位置... (${progress}%)`, Infinity);
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+                showStatus('計算完成，正在渲染數字... (0%)', Infinity);
+                const renderChunkSize = 50000;
+                let renderedCount = 0;
+                while(renderedCount < targetCount) {
+                    const chunk = digitsToRender.substring(renderedCount, renderedCount + renderChunkSize);
+                    piContainer.insertAdjacentText('beforeend', chunk);
+                    renderedCount += chunk.length;
+                    const progress = Math.round((renderedCount / targetCount) * 100);
+                    showStatus(`正在渲染數字... (${progress}%)`, Infinity);
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+                currentIndex = targetCount;
+                digitCount.textContent = currentIndex;
+                showStatus(`已成功跳轉至 ${targetCount} 位。`);
+                autoSaveState();
+                if (autoStart) startReciting();
+                else setControlsState('idle');
+            }
             
             const modals={initial:document.getElementById('initial-load-modal'),naming:document.getElementById('naming-modal'),manage:document.getElementById('manage-saves-modal'),settings:document.getElementById('settings-modal'),confirm:document.getElementById('confirm-modal'),askDestination:document.getElementById('ask-save-destination-modal')};
             function openModal(modal){modalBackdrop.classList.remove('hidden');modal.classList.remove('hidden');}
             function closeModal(modal){modalBackdrop.classList.add('hidden');modal.classList.add('hidden');}
             function showConfirm(text){return new Promise(resolve=>{const a=document.getElementById('confirm-modal-text'),b=document.getElementById('confirm-modal-yes-btn'),c=document.getElementById('confirm-modal-no-btn');a.textContent=text;openModal(modals.confirm);const d=e=>{closeModal(modals.confirm);b.onclick=null;c.onclick=null;resolve(e)};b.onclick=()=>d(true);c.onclick=()=>d(false)})}
-
             function openNamingModal({ isRename = false, saveId = null, initialName = '' }) {
                 const title = document.getElementById('naming-title');
                 const input = document.getElementById('naming-input');
@@ -187,28 +238,7 @@
             }
             
             function populateSavesList() { /* ... unchanged ... */ const a=getSaves(),b=document.getElementById('saves-list'),c=getSettings();b.innerHTML='';const d=e=>{const f=document.createElement('div');f.className='bg-gray-700 p-3 rounded-lg flex items-center justify-between';const g=new Date(e.timestamp).toLocaleString('zh-TW');f.innerHTML=`<div><div class="flex items-center gap-2"><p class="font-semibold text-white">${e.name}</p>${e.id===c.autoSaveTargetId?'<span class="text-xs bg-cyan-800 text-cyan-300 px-2 py-0.5 rounded-full">自動儲存</span>':''}</div><p class="text-sm text-gray-400">位數: ${e.count} | ${g}</p></div><div class="flex gap-2"><button class="rename-btn px-3 py-2 bg-yellow-600 hover:bg-yellow-700 text-sm rounded-md">命名</button><button class="load-btn px-3 py-2 bg-blue-600 hover:bg-blue-700 text-sm rounded-md">載入</button><button class="delete-btn px-3 py-2 bg-red-600 hover:bg-red-700 text-sm rounded-md">刪除</button></div>`;f.querySelector('.load-btn').addEventListener('click',()=>{closeModal(modals.manage);processLoadAsync(e)});f.querySelector('.delete-btn').addEventListener('click',async()=>{if(e.id===c.autoSaveTargetId){showStatus('無法刪除目前的自動儲存目標。');return}const h=await showConfirm(`確定要刪除存檔 "${e.name}" 嗎？`);if(h){let i=getSaves();const j=i.filter(s=>s.id!==e.id);persistSaves(j);populateSavesList()}});f.querySelector('.rename-btn').addEventListener('click',()=>{openNamingModal({isRename:true,saveId:e.id,initialName:e.name});closeModal(modals.manage)});return f};if(a.length>0){a.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp)).forEach(e=>b.appendChild(d(e)))}else{b.innerHTML='<p class="text-gray-500 text-center">沒有任何儲存紀錄。</p>'}}
-            
-            function populateSettingsModal() {
-                const saves = getSaves();
-                const settings = getSettings();
-                const autoSelect = document.getElementById('auto-save-target-select');
-                const manualSelect = document.getElementById('manual-save-target-select');
-                autoSelect.innerHTML = '';
-                manualSelect.innerHTML = '';
-
-                saves.forEach(save => {
-                    const option = document.createElement('option');
-                    option.value = save.id;
-                    option.textContent = `${save.name} (${save.count}位)`;
-                    autoSelect.appendChild(option.cloneNode(true));
-                    manualSelect.appendChild(option);
-                });
-
-                autoSelect.value = settings.autoSaveTargetId;
-                document.querySelector(`input[name="manual-behavior"][value="${settings.manualSaveBehavior}"]`).checked = true;
-                manualSelect.value = settings.manualSaveTargetId;
-                manualSelect.classList.toggle('hidden', settings.manualSaveBehavior !== 'specific');
-            }
+            function populateSettingsModal() { /* ... unchanged ... */ const a=getSaves(),b=getSettings(),c=document.getElementById('auto-save-target-select'),d=document.getElementById('manual-save-target-select');c.innerHTML='';d.innerHTML='';a.forEach(e=>{const f=document.createElement('option');f.value=e.id;f.textContent=`${e.name} (${e.count}位)`;c.appendChild(f.cloneNode(true));d.appendChild(f)});c.value=b.autoSaveTargetId;document.querySelector(`input[name="manual-behavior"][value="${b.manualSaveBehavior}"]`).checked=true;d.value=b.manualSaveTargetId;d.classList.toggle('hidden',b.manualSaveBehavior!=='specific')}
 
             function init() {
                 // First time setup
@@ -222,7 +252,7 @@
                     persistSettings(settings);
                 }
 
-                piIterator = piDigitGenerator();
+                piIterator = piGenerator();
                 piIterator.next();
 
                 // Event Listeners
@@ -235,66 +265,21 @@
                 settingsBtn.addEventListener('click', ()=>{stopReciting();populateSettingsModal();openModal(modals.settings)});
                 document.getElementById('close-manage-saves-modal-btn').addEventListener('click',()=>closeModal(modals.manage));
                 document.getElementById('cancel-settings-btn').addEventListener('click',()=>closeModal(modals.settings));
-                document.getElementById('save-settings-btn').addEventListener('click', ()=>{
-                    const newSettings={};
-                    newSettings.autoSaveTargetId = parseInt(document.getElementById('auto-save-target-select').value);
-                    newSettings.manualSaveBehavior = document.querySelector('input[name="manual-behavior"]:checked').value;
-                    newSettings.manualSaveTargetId = parseInt(document.getElementById('manual-save-target-select').value) || null;
-                    persistSettings(newSettings);
-                    showStatus('設定已儲存');
-                    closeModal(modals.settings);
-                });
-                document.querySelectorAll('input[name="manual-behavior"]').forEach(radio => {
-                    radio.addEventListener('change', (e) => {
-                        document.getElementById('manual-save-target-select').classList.toggle('hidden', e.target.value !== 'specific');
-                    });
-                });
-                 manualSaveBtn.addEventListener('click', async () => {
-                    stopReciting();
-                    if(currentIndex === 0) { showStatus('沒有可儲存的進度。'); return; }
-                    const settings = getSettings();
-                    const saves = getSaves();
-                    switch(settings.manualSaveBehavior) {
-                        case 'create':
-                            openNamingModal({initialName: `手動儲存 - ${new Date().toLocaleString('sv')}`});
-                            break;
-                        case 'specific':
-                            const targetSave = saves.find(s => s.id === settings.manualSaveTargetId);
-                            if(targetSave) {
-                                if (await showConfirm(`確定要覆寫存檔 "${targetSave.name}" 嗎？`)) {
-                                    Object.assign(targetSave, {count: currentIndex, speed: currentSpeed, timestamp: new Date().toISOString()});
-                                    persistSaves(saves);
-                                    showStatus(`已覆寫存檔 "${targetSave.name}"`);
-                                }
-                            } else { showStatus('找不到指定的手動存檔目標。'); }
-                            break;
-                        case 'ask':
-                            const listContainer = document.getElementById('save-destination-list');
-                            listContainer.innerHTML = '';
-                            saves.forEach(save => {
-                                const el = document.createElement('button');
-                                el.className = 'w-full text-left p-3 bg-gray-700 hover:bg-gray-600 rounded-lg';
-                                el.innerHTML = `<p class="font-semibold">${save.name}</p><p class="text-sm text-gray-400">${save.count}位</p>`;
-                                el.onclick = async () => {
-                                     if (await showConfirm(`確定要覆寫存檔 "${save.name}" 嗎？`)) {
-                                        Object.assign(save, {count: currentIndex, speed: currentSpeed, timestamp: new Date().toISOString()});
-                                        persistSaves(saves);
-                                        showStatus(`已覆寫存檔 "${save.name}"`);
-                                        closeModal(modals.askDestination);
-                                    }
-                                }
-                                listContainer.appendChild(el);
-                            });
-                            document.getElementById('create-new-from-ask-btn').onclick = () => {
-                                closeModal(modals.askDestination);
-                                openNamingModal({initialName: `手動儲存 - ${new Date().toLocaleString('sv')}`});
-                            };
-                            document.getElementById('cancel-ask-destination-btn').onclick = () => closeModal(modals.askDestination);
-                            openModal(modals.askDestination);
-                            break;
-                    }
-                });
+                document.getElementById('save-settings-btn').addEventListener('click', ()=>{const a={};a.autoSaveTargetId=parseInt(document.getElementById('auto-save-target-select').value);a.manualSaveBehavior=document.querySelector('input[name="manual-behavior"]:checked').value;a.manualSaveTargetId=parseInt(document.getElementById('manual-save-target-select').value)||null;persistSettings(a);showStatus('設定已儲存');closeModal(modals.settings)});
+                document.querySelectorAll('input[name="manual-behavior"]').forEach(r=>{r.addEventListener('change',e=>{document.getElementById('manual-save-target-select').classList.toggle('hidden',e.target.value!=='specific')})});
+                 manualSaveBtn.addEventListener('click', async () => { /* ... unchanged ... */ stopReciting();if(currentIndex===0){showStatus('沒有可儲存的進度。');return}const a=getSettings(),b=getSaves();switch(a.manualSaveBehavior){case'create':openNamingModal({initialName:`手動儲存 - ${new Date().toLocaleString('sv')}`});break;case'specific':const c=b.find(s=>s.id===a.manualSaveTargetId);if(c){if(await showConfirm(`確定要覆寫存檔 "${c.name}" 嗎？`)){Object.assign(c,{count:currentIndex,speed:currentSpeed,timestamp:new Date().toISOString()});persistSaves(b);showStatus(`已覆寫存檔 "${c.name}"`)}}else{showStatus('找不到指定的手動存檔目標。')}break;case'ask':const d=document.getElementById('save-destination-list');d.innerHTML='';b.forEach(e=>{const f=document.createElement('button');f.className='w-full text-left p-3 bg-gray-700 hover:bg-gray-600 rounded-lg';f.innerHTML=`<p class="font-semibold">${e.name}</p><p class="text-sm text-gray-400">${e.count}位</p>`;f.onclick=async()=>{if(await showConfirm(`確定要覆寫存檔 "${e.name}" 嗎？`)){Object.assign(e,{count:currentIndex,speed:currentSpeed,timestamp:new Date().toISOString()});persistSaves(b);showStatus(`已覆寫存檔 "${e.name}"`);closeModal(modals.askDestination)}};d.appendChild(f)});document.getElementById('create-new-from-ask-btn').onclick=()=>{closeModal(modals.askDestination);openNamingModal({initialName:`手動儲存 - ${new Date().toLocaleString('sv')}`})};document.getElementById('cancel-ask-destination-btn').onclick=()=>closeModal(modals.askDestination);openModal(modals.askDestination);break}});
                 document.getElementById('cancel-naming-btn').addEventListener('click',()=>closeModal(modals.naming));
+                jumpBtn.addEventListener('click', () => {
+                    if(intervalId) { showStatus('請先暫停才能進行跳轉。'); return; }
+                    let rawValue = jumpInput.value.trim();
+                    if(rawValue.startsWith('3.')) rawValue = rawValue.substring(2);
+                    else if(rawValue.startsWith('3')) rawValue = rawValue.substring(1);
+                    const userInputDigits = rawValue.replace(/[^0-9]/g, '');
+                    if(userInputDigits.length === 0) { showStatus('請輸入有效的圓周率數字。'); return; }
+                    const targetCount = userInputDigits.length;
+                    const autoStart = jumpAutoStartCheckbox.checked;
+                    processJumpAsync(targetCount, userInputDigits, autoStart);
+                });
 
                 // Initial Load
                 const autoSaveSlot = getSaves().find(s => s.id === getSettings().autoSaveTargetId);
@@ -309,7 +294,9 @@
                     setControlsState('idle');
                 }
             }
-
+            
+            // Renamed piDigitGenerator to piGenerator to fix reference error in resetApplication
+            const piGenerator = piDigitGenerator;
             init();
         });
     </script>
